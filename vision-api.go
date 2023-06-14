@@ -87,7 +87,15 @@ func (files *ImageFiles) PopulateImages(inputPath string) error {
 //---------------------------------------------------------------------------------------
 
 // Iterate through the image file list and call the Vision API to detect the text
-func (files *ImageFiles) DetectImageText() error {
+func (files *ImageFiles) DetectImageText(outputFile string, outputFull bool) error {
+
+	// Create the output file
+	f, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("Failed to create output file: %w", err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
 
 	// Execute OCR using Vision API
 	errorCount := 0
@@ -100,61 +108,50 @@ func (files *ImageFiles) DetectImageText() error {
 		if err != nil {
 			logger.Error().Err(err).Msg("Vision API request failed")
 			errorCount++
+			continue
 		}
-	}
 
-	// Raise an Error if one of the Vision API requests failes
-	if errorCount > 0 {
-		return fmt.Errorf("One or more Vision API requests failed")
-	}
-
-	return nil
-}
-
-//---------------------------------------------------------------------------------------
-
-// Write out the image information, including annotations to a file in JSON format
-func (files *ImageFiles) WriteOutput(outputFile string, outputFull bool) error {
-
-	logger.Info().Msg("Writing output file")
-
-	// Create the output file
-	f, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("Failed to create output file: %w", err)
-	}
-	defer f.Close()
-
-	// Iterate through images and write out the JSON version to file
-	w := bufio.NewWriter(f)
-	for i := range files.Images {
 		var jsonData []byte
 
 		if outputFull {
 			jsonData, err = files.Images[i].GetFullJSON()
 			if err != nil {
-				return fmt.Errorf("Failed to marshal json data: %w", err)
+				logger.Error().Err(err).Msg("Failed to marshal json data")
+				errorCount++
+				continue
 			}
 		} else {
 			jsonData, err = files.Images[i].GetCompactJSON()
 			if err != nil {
-				return fmt.Errorf("Failed to marshal json data: %w", err)
+				logger.Error().Err(err).Msg("Failed to marshal json data")
+				errorCount++
+				continue
 			}
 		}
 
 		// Write out the JSON
 		_, err = w.Write(jsonData)
 		if err != nil {
-			return fmt.Errorf("Failed to write to output file: %w", err)
+			logger.Error().Err(err).Msg("Failed to write to output file")
+			errorCount++
+			continue
 		}
 
 		// Write out the newline
 		_, err = w.WriteString("\n")
 		if err != nil {
-			return fmt.Errorf("Failed to write to output file: %w", err)
+			logger.Error().Err(err).Msg("Failed to write to output file")
+			errorCount++
+			continue
 		}
+
+		w.Flush()
 	}
-	w.Flush()
+
+	// Raise an Error if one of the Vision API requests failes
+	if errorCount > 0 {
+		return fmt.Errorf("One or more Vision API requests failed")
+	}
 
 	return nil
 }

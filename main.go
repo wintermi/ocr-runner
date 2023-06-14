@@ -103,16 +103,10 @@ func main() {
 	logger.Info().Int("Image Count", len(imageFiles.Images)).Msg("Populating image file list complete")
 
 	// Iterate through the image file list and call the Vision API to detect the text
-	err = imageFiles.DetectImageText()
+	// Writing out the image information and annotations in JSON format to a file
+	err = imageFiles.DetectImageText(*outputFile, *outputFull)
 	if err != nil {
 		logger.Error().Err(err).Msg("Image text detection failed")
-		os.Exit(1)
-	}
-
-	// Write out the image information, including annotations to a file in JSON format
-	err = imageFiles.WriteOutput(*outputFile, *outputFull)
-	if err != nil {
-		logger.Error().Err(err).Msg("Write output file failed")
 		os.Exit(1)
 	}
 	logger.Info().Msg("End")
