@@ -95,7 +95,7 @@ func (info *ImageInfo) CallDocumentAI(predictionEndpoint string) error {
 func GetHostName(endpoint *url.URL) string {
 
 	host := endpoint.Host
-	if strings.Index(host, ":") >= 0 {
+	if strings.Contains(host, ":") {
 		return host
 	}
 
