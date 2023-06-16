@@ -20,8 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	i32 "github.com/adam-lavrik/go-imath/i32"
@@ -61,8 +64,16 @@ func (files *ImageFiles) PopulateImages(inputPath string) error {
 		return fmt.Errorf("Glob Failed: %w", err)
 	}
 
+	// Get lits of GLOBs to ignore
+	ignoreThis := GetIgnoreList(ignoreFileName)
+
 	// Load all matching files returned from the Glob
 	for _, filename := range matches {
+
+		if IsIgnorableFile(filename, ignoreThis) {
+			continue
+		}
+
 		fileInfo, err := os.Stat(filename)
 		if err != nil {
 			return fmt.Errorf("Failed to get file info: %w", err)
@@ -339,4 +350,62 @@ func (info *ImageInfo) GetCompactJSON() ([]byte, error) {
 
 func (info *ImageInfo) GetFullJSON() ([]byte, error) {
 	return json.Marshal(info)
+}
+
+// Simply opens a file so handleIgnoreFile can do the work and make testing easier.
+func GetIgnoreList(ignoreFileName string) []string {
+	fileReader, err := os.Open(path.Join("./", ignoreFileName))
+	if err != nil {
+		// ignore if error is about the ignore file not existing
+		if os.IsNotExist(err) {
+			return []string{}
+		}
+
+		logger.Error().Err(err).Msg("couldn't Open ignore file.")
+		return []string{}
+	}
+
+	defer fileReader.Close()
+
+	return handleIgnoreFile(fileReader)
+}
+
+func handleIgnoreFile(file io.Reader) []string {
+	fileContents, err := io.ReadAll(file)
+	if err != nil {
+		logger.Error().Err(err).Msg("couldn't Read ignore file.")
+		return []string{}
+	}
+	lineBreakRegExp := regexp.MustCompile(`\r?\n`)
+	globs := lineBreakRegExp.Split(string(fileContents), -1)
+
+	cleanGlobs := make([]string, 0)
+
+	for _, g := range globs {
+		s := strings.TrimSpace(g)
+		if len(s) > 0 {
+			cleanGlobs = append(cleanGlobs, s)
+		}
+	}
+
+	return cleanGlobs
+}
+
+func IsIgnorableFile(fileName string, ignoreList []string) bool {
+
+	for _, glob := range ignoreList {
+
+		matches, err := filepath.Match(glob, fileName)
+		if err != nil {
+			errMsg := fmt.Sprintf("Ecountered a malformed GLOB while checking if a file should be ignored. Offending glob: %s", glob)
+			logger.Error().Err(err).Msg(errMsg)
+			continue
+		}
+
+		if matches {
+			return true
+		}
+	}
+
+	return false
 }
