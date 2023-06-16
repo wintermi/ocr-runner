@@ -24,6 +24,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const ignoreFileName = ".ocrignore"
+
 var logger zerolog.Logger
 var applicationText = "%s 0.1.0%s"
 var copyrightText = "Copyright 2022-2023, Matthew Winter\n"
@@ -34,6 +36,9 @@ A command line application designed to recursively walk through the input path
 submitting all image files for optical character recognition (OCR) via the
 Google Cloud Vision API, Outputting the OCR response to a single newline
 delimited JSON File.
+
+If a file named .ocrignore is found in the current dir it's used a a list of
+GLOBs to exclude, akin to .gitignore.
 
 Use --help for more details.
 
@@ -79,12 +84,26 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
+	// Checking for .ocrignore file
+	hasIgnoreFile := false
+	ignoreFile, err_ := filepath.Glob("./" + ignoreFileName)
+	if err_ != nil {
+		logger.Error().Err(err_).Msg("Failed to check for .ocrignore file.")
+
+	} else {
+		// in the odd case that filepath.Glob returns several files
+		if len(ignoreFile) == 1 {
+			hasIgnoreFile = true
+		}
+	}
+
 	// Output Header
 	logger.Info().Msgf(applicationText, filepath.Base(os.Args[0]), "")
 	logger.Info().Msg("Arguments")
 	logger.Info().Str("Input Path", *inputPath).Msg(indent)
 	logger.Info().Str("Output File", *outputFile).Msg(indent)
 	logger.Info().Bool("Output Full Details", *outputFull).Msg(indent)
+	logger.Info().Bool("Using ignore file", hasIgnoreFile).Msg(indent)
 	logger.Info().Msg("Begin")
 
 	// Walk the provided input path and populate a list of images in preparation for OCR
