@@ -15,158 +15,15 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
-	"fmt"
 	"image"
 	"os"
-	"path/filepath"
 	"strings"
-
-	i32 "github.com/adam-lavrik/go-imath/i32"
 
 	vision "cloud.google.com/go/vision/apiv1"
 	visionpb "cloud.google.com/go/vision/v2/apiv1/visionpb"
+	"github.com/adam-lavrik/go-imath/i32"
 )
-
-type Annotation struct {
-	BoundingPoly *visionpb.BoundingPoly `json:"bounding_poly"`
-	BoundingBox  image.Rectangle        `json:"bounding_box"`
-	Orientation  int                    `json:"orientation"`
-	Confidence   float32                `json:"confidence"`
-	Text         string                 `json:"text"`
-}
-
-type ImageInfo struct {
-	Filename   string       `json:"filename"`
-	Size       int64        `json:"size"`
-	Text       string       `json:"text"`
-	Paragraphs []Annotation `json:"paragraphs"`
-	Words      []Annotation `json:"words"`
-}
-
-type ImageFiles struct {
-	Images []ImageInfo
-}
-
-//---------------------------------------------------------------------------------------
-
-// Walk the provided input path and populate a list of images in preparation for OCR
-func (files *ImageFiles) PopulateImages(inputPath string) error {
-
-	// Execute a GLOB to return all files matching the provided pattern
-	matches, err := filepath.Glob(inputPath)
-	if err != nil {
-		return fmt.Errorf("Glob Failed: %w", err)
-	}
-
-	// Load all matching files returned from the Glob
-	for _, filename := range matches {
-		fileInfo, err := os.Stat(filename)
-		if err != nil {
-			return fmt.Errorf("Failed to get file info: %w", err)
-		}
-
-		// Skip Directories
-		if fileInfo.IsDir() {
-			continue
-		}
-
-		image := ImageInfo{
-			Filename: filename,
-			Size:     fileInfo.Size(),
-		}
-
-		files.Images = append(files.Images, image)
-	}
-
-	return nil
-}
-
-//---------------------------------------------------------------------------------------
-
-// Iterate through the image file list and call the Vision API to detect the text
-func (files *ImageFiles) DetectImageText(outputFile string, outputFull bool) error {
-
-	// Create the output file
-	f, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("Failed to create output file: %w", err)
-	}
-	defer f.Close()
-	w := bufio.NewWriter(f)
-
-	// Execute OCR using Vision API
-	errorCount := 0
-	for i := range files.Images {
-		logger.Info().Msg("Image:")
-		logger.Info().Str("Filename", files.Images[i].Filename).Msg(indent)
-		logger.Info().Int64("Size", files.Images[i].Size).Msg(indent)
-
-		err := files.Images[i].CallVisionAPI()
-		if err != nil {
-			logger.Error().Err(err).Msg("Vision API request failed")
-			errorCount++
-			continue
-		}
-
-		var jsonData []byte
-
-		if outputFull {
-			jsonData, err = files.Images[i].GetFullJSON()
-			if err != nil {
-				logger.Error().Err(err).Msg("Failed to marshal json data")
-				errorCount++
-				continue
-			}
-		} else {
-			jsonData, err = files.Images[i].GetCompactJSON()
-			if err != nil {
-				logger.Error().Err(err).Msg("Failed to marshal json data")
-				errorCount++
-				continue
-			}
-		}
-
-		// Write out the JSON
-		_, err = w.Write(jsonData)
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to write to output file")
-			errorCount++
-			continue
-		}
-
-		// Write out the newline
-		_, err = w.WriteString("\n")
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to write to output file")
-			errorCount++
-			continue
-		}
-
-		w.Flush()
-	}
-
-	// Raise an Error if one of the Vision API requests failes
-	if errorCount > 0 {
-		return fmt.Errorf("One or more Vision API requests failed")
-	}
-
-	return nil
-}
-
-//---------------------------------------------------------------------------------------
-
-func (info *ImageInfo) AddParagraph(paragraph Annotation) {
-	info.Paragraphs = append(info.Paragraphs, paragraph)
-}
-
-//---------------------------------------------------------------------------------------
-
-func (info *ImageInfo) AddWord(word Annotation) {
-	info.Words = append(info.Words, word)
-}
 
 //---------------------------------------------------------------------------------------
 
@@ -202,7 +59,6 @@ func (info *ImageInfo) CallVisionAPI() error {
 
 	info.Text = annotation.Text
 	logger.Debug().Str("Text", info.Text).Msg("... Annotation")
-	//logger.Debug().Any("Annotation", annotation).Msg(indent)
 
 	for _, page := range annotation.Pages {
 		for _, block := range page.Blocks {
@@ -216,30 +72,19 @@ func (info *ImageInfo) CallVisionAPI() error {
 						symbols[s] = symbol.Text
 					}
 
-					newWord := Annotation{
-						BoundingPoly: word.BoundingBox,
-						Confidence:   word.Confidence,
-						Text:         strings.Join(symbols, ""),
-					}
-					newWord.SetRectangle(word.BoundingBox)
-					newWord.SetOrientation(word.BoundingBox)
-
-					info.AddWord(newWord)
-
-					words[w] = newWord.Text
+					words[w] = strings.Join(symbols, "")
 				}
 
-				newParagraph := Annotation{
-					BoundingPoly: paragraph.BoundingBox,
-					Confidence:   paragraph.Confidence,
-					Text:         strings.Join(words, " "),
+				textBlock := TextBlock{
+					BoundingBox: GetBoundingBox(paragraph.BoundingBox),
+					Confidence:  paragraph.Confidence,
+					Orientation: GetOrientation(paragraph.BoundingBox),
+					Text:        strings.Join(words, " "),
 				}
-				newParagraph.SetRectangle(paragraph.BoundingBox)
-				newParagraph.SetOrientation(paragraph.BoundingBox)
 
-				info.AddParagraph(newParagraph)
+				info.AddParagraph(textBlock)
 
-				logger.Debug().Str("Text", newParagraph.Text).Float32("Confidence", newParagraph.Confidence).Msg("... Paragraph")
+				logger.Debug().Str("Text", textBlock.Text).Float32("Confidence", textBlock.Confidence).Msg("... Paragraph")
 			}
 		}
 	}
@@ -250,7 +95,7 @@ func (info *ImageInfo) CallVisionAPI() error {
 //---------------------------------------------------------------------------------------
 
 // Calculate the Min/Max Bounding Box as a Rectangle
-func (box *Annotation) SetRectangle(boundingBox *visionpb.BoundingPoly) {
+func GetBoundingBox(boundingBox *visionpb.BoundingPoly) image.Rectangle {
 	var result image.Rectangle
 
 	if boundingBox != nil {
@@ -272,7 +117,7 @@ func (box *Annotation) SetRectangle(boundingBox *visionpb.BoundingPoly) {
 		result.Max.Y = int(maxY)
 	}
 
-	box.BoundingBox = result
+	return result
 }
 
 //---------------------------------------------------------------------------------------
@@ -292,51 +137,27 @@ func (box *Annotation) SetRectangle(boundingBox *visionpb.BoundingPoly) {
 //	    1----0
 //
 //	Example BoundingBox: vertices:{x:2496  y:1632}  vertices:{x:2220  y:1659}  vertices:{x:2215  y:1601}  vertices:{x:2490  y:1574}
-func (box *Annotation) SetOrientation(boundingBox *visionpb.BoundingPoly) {
+func GetOrientation(boundingBox *visionpb.BoundingPoly) int {
+	var result int
+
 	if boundingBox == nil || len(boundingBox.Vertices) < 3 {
-		box.Orientation = 0
-		return
+		return 0
 	}
 
 	// Calculate orientation by the relative position of the vertex 0 to that of vertex 2
 	if boundingBox.Vertices[0].X > boundingBox.Vertices[2].X {
 		if boundingBox.Vertices[0].Y > boundingBox.Vertices[2].Y {
-			box.Orientation = 180
+			result = 180
 		} else {
-			box.Orientation = 270
+			result = 270
 		}
 	} else {
 		if boundingBox.Vertices[0].Y > boundingBox.Vertices[2].Y {
-			box.Orientation = 90
+			result = 90
 		} else {
-			box.Orientation = 0
+			result = 0
 		}
 	}
-}
 
-//---------------------------------------------------------------------------------------
-
-func (info *ImageInfo) GetCompactJSON() ([]byte, error) {
-
-	compact := make(map[string]interface{})
-	compact["filename"] = info.Filename
-	compact["size"] = info.Size
-	compact["text"] = info.Text
-
-	paragraphs := make([]map[string]interface{}, len(info.Paragraphs))
-	compact["paragraphs"] = paragraphs
-
-	for i := range info.Paragraphs {
-		paragraphs[i] = make(map[string]interface{})
-		paragraphs[i]["confidence"] = info.Paragraphs[i].Confidence
-		paragraphs[i]["text"] = info.Paragraphs[i].Text
-	}
-
-	return json.Marshal(compact)
-}
-
-//---------------------------------------------------------------------------------------
-
-func (info *ImageInfo) GetFullJSON() ([]byte, error) {
-	return json.Marshal(info)
+	return result
 }

@@ -25,15 +25,16 @@ import (
 )
 
 var logger zerolog.Logger
-var applicationText = "%s 0.1.0%s"
+var applicationText = "%s 0.2.0%s"
 var copyrightText = "Copyright 2022-2023, Matthew Winter\n"
 var indent = "..."
 
 var helpText = `
 A command line application designed to recursively walk through the input path
-submitting all image files for optical character recognition (OCR) via the
-Google Cloud Vision API, Outputting the OCR response to a single newline
-delimited JSON File.
+submitting all image files for optical character recognition (OCR) via either
+the Google Cloud Vision API or a Google Cloud Document AI processor if a
+prediction endpoint is provided.  The application will then output the image
+information and annotations to a single newline delimited JSON File.
 
 Use --help for more details.
 
@@ -56,6 +57,7 @@ func main() {
 	var inputPath = flag.String("i", "", "Input Path  (Required)")
 	var outputFile = flag.String("o", "", "Output File  (Required)")
 	var outputFull = flag.Bool("full", false, "Output full details to JSON")
+	var predictionEndpoint = flag.String("endpoint", "", "Document AI Prediction Endpoint  (Optional)")
 	var verbose = flag.Bool("verbose", false, "Display verbose or debug detail")
 
 	// Parse the flags
@@ -85,6 +87,7 @@ func main() {
 	logger.Info().Str("Input Path", *inputPath).Msg(indent)
 	logger.Info().Str("Output File", *outputFile).Msg(indent)
 	logger.Info().Bool("Output Full Details", *outputFull).Msg(indent)
+	logger.Info().Str("Document AI Prediction Endpoint", *predictionEndpoint).Msg(indent)
 	logger.Info().Msg("Begin")
 
 	// Walk the provided input path and populate a list of images in preparation for OCR
@@ -104,7 +107,7 @@ func main() {
 
 	// Iterate through the image file list and call the Vision API to detect the text
 	// Writing out the image information and annotations in JSON format to a file
-	err = imageFiles.DetectImageText(*outputFile, *outputFull)
+	err = imageFiles.DetectImageText(*outputFile, *outputFull, *predictionEndpoint)
 	if err != nil {
 		logger.Error().Err(err).Msg("Image text detection failed")
 		os.Exit(1)
