@@ -1,6 +1,6 @@
 # OCR Runner
 
-[![Workflows](https://github.com/wintermi/ocr-runner/workflows/Go/badge.svg)](https://github.com/wintermi/ocr-runner/actions)
+[![Workflows](https://github.com/wintermi/ocr-runner/workflows/Go%20-%20Build/badge.svg)](https://github.com/wintermi/ocr-runner/actions)
 [![Go Report](https://goreportcard.com/badge/github.com/wintermi/ocr-runner)](https://goreportcard.com/report/github.com/wintermi/ocr-runner)
 [![License](https://img.shields.io/github/license/wintermi/ocr-runner)](https://github.com/wintermi/ocr-runner/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/wintermi/ocr-runner?include_prereleases)](https://github.com/wintermi/ocr-runner/releases)
